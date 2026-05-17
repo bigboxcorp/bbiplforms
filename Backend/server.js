@@ -1,8 +1,9 @@
 import express from 'express';
 import multer from 'multer';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
@@ -123,7 +124,25 @@ app.get('/api/responses/:formId', async (req, res) => {
     });
 
     const response = await docClient.send(command);
-    res.status(200).json(response.Items);
+    const items = response.Items || [];
+
+    for (const item of items) {
+      if (item.answers) {
+        for (const [key, value] of Object.entries(item.answers)) {
+          if (typeof value === 'string' && value.includes('.amazonaws.com/')) {
+            const fileKey = value.split('.amazonaws.com/')[1];
+            const s3GetCommand = new GetObjectCommand({
+              Bucket: process.env.S3_BUCKET_NAME,
+              Key: fileKey,
+            });
+            const signedUrl = await getSignedUrl(s3Client, s3GetCommand, { expiresIn: 3600 });
+            item.answers[key] = signedUrl;
+          }
+        }
+      }
+    }
+
+    res.status(200).json(items);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
