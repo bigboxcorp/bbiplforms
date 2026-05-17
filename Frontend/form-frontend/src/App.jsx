@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useParams, Link, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 
 const API_URL = 'https://api.bbipl.org/api';
@@ -591,6 +591,8 @@ function ResponseDashboard() {
   const [emailTemplate, setEmailTemplate] = useState('');
   const [previewTab, setPreviewTab] = useState(false);
   const [sendingMail, setSendingMail] = useState(false);
+  const [selectedFieldsForMail, setSelectedFieldsForMail] = useState([]);
+  const [mailFileMode, setMailFileMode] = useState('link');
 
   useEffect(() => { fetchData(); }, [formId]);
 
@@ -632,13 +634,18 @@ function ResponseDashboard() {
         ...form.fields.map(field => {
           const ans = resp.answers[field.id];
           if (!ans) return '';
-          if (Array.isArray(ans)) return ans.join(' | ');
-          return ans.toString();
+          if (Array.isArray(ans)) {
+            return ans.map((url, idx) => `=HYPERLINK(""${url}"", ""File ${idx + 1}"")`).join(' | ');
+          }
+          if (typeof ans === 'string' && ans.startsWith('http')) {
+             return `=HYPERLINK(""${ans}"", ""View File"")`;
+          }
+          return String(ans).replace(/"/g, '""');
         })
       ];
     });
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-      + [headers.join(','), ...rows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(','))].join('\n');
+    
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(','), ...rows.map(e => e.map(val => `"${val}"`).join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -651,15 +658,41 @@ function ResponseDashboard() {
   const openMailModal = (resp) => {
     setActiveResp(resp);
     setEmailTo('');
-    setEmailSubject(`Response Submission Update: ${form.title}`);
-    let defaultBody = `<h3>Form Response Data</h3><p>Thank you for submitting. Here is the copy:</p><ul>`;
+    setEmailSubject(`Update: ${form.title}`);
+    const defaultFields = form.fields.map(f => f.id);
+    setSelectedFieldsForMail(defaultFields);
+    setMailFileMode('link');
+    generateTemplate(defaultFields, 'link');
+    setPreviewTab(false);
+    setMailModalActive(true);
+  };
+
+  const generateTemplate = (fieldsArray, fMode) => {
+    let defaultBody = `<h3>Form Response Data</h3><p>Thank you for submitting.</p><ul>`;
     form.fields.forEach(f => {
-      defaultBody += `<li><strong>${f.label}:</strong> {{${f.label}}}</li>`;
+      if (fieldsArray.includes(f.id)) {
+        if (f.type === 'file' && fMode === 'attach') {
+          defaultBody += `<li><strong>${f.label}:</strong> [Files Attached to Email]</li>`;
+        } else {
+          defaultBody += `<li><strong>${f.label}:</strong> {{${f.id}}}</li>`;
+        }
+      }
     });
     defaultBody += `</ul>`;
     setEmailTemplate(defaultBody);
-    setPreviewTab(false);
-    setMailModalActive(true);
+  };
+
+  const toggleFieldForMail = (fieldId) => {
+    let newFields = [...selectedFieldsForMail];
+    if (newFields.includes(fieldId)) newFields = newFields.filter(id => id !== fieldId);
+    else newFields.push(fieldId);
+    setSelectedFieldsForMail(newFields);
+    generateTemplate(newFields, mailFileMode);
+  };
+
+  const toggleFileMode = (mode) => {
+    setMailFileMode(mode);
+    generateTemplate(selectedFieldsForMail, mode);
   };
 
   const parseMailTemplate = (templateStr, resp) => {
@@ -670,10 +703,10 @@ function ResponseDashboard() {
       const ans = resp.answers[f.id];
       let txt = '-';
       if (ans) {
-        if (Array.isArray(ans)) txt = ans.join(', ');
+        if (Array.isArray(ans)) txt = ans.map((l, i) => `<a href="${l}">File ${i + 1}</a>`).join(', ');
+        else if (typeof ans === 'string' && ans.startsWith('http')) txt = `<a href="${ans}">View File</a>`;
         else txt = ans.toString();
       }
-      parsed = parsed.split(`{{${f.label}}}`).join(txt);
       parsed = parsed.split(`{{${f.id}}}`).join(txt);
     });
     return parsed;
@@ -683,11 +716,28 @@ function ResponseDashboard() {
     if (!emailTo) { alert('Recipient email address is required.'); return; }
     setSendingMail(true);
     const dynamicHTML = parseMailTemplate(emailTemplate, activeResp);
+    
+    let attachments = [];
+    if (mailFileMode === 'attach') {
+      form.fields.forEach(f => {
+        if (f.type === 'file' && selectedFieldsForMail.includes(f.id) && activeResp.answers[f.id]) {
+          const links = Array.isArray(activeResp.answers[f.id]) ? activeResp.answers[f.id] : [activeResp.answers[f.id]];
+          links.forEach((link, idx) => {
+            attachments.push({
+              filename: `${f.label.replace(/\s+/g, '_')}_${idx + 1}`,
+              path: link
+            });
+          });
+        }
+      });
+    }
+
     try {
       await axios.post(`${API_URL}/responses/send-email`, {
         to: emailTo,
         subject: emailSubject,
-        html: dynamicHTML
+        html: dynamicHTML,
+        attachments
       });
       alert('Mail dispatched successfully!');
       setMailModalActive(false);
@@ -793,44 +843,61 @@ function ResponseDashboard() {
 
       {mailModalActive && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
-          <div style={{ background: 'white', padding: '30px', borderRadius: '8px', width: '90%', maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
+          <div style={{ background: 'white', padding: '30px', borderRadius: '8px', width: '90%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-              <h3>Scriptable Dynamic Email Console</h3>
-              <button onClick={() => setMailModalActive(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer' }}>✕</button>
+              <h2>Configure Email Response</h2>
+              <button onClick={() => setMailModalActive(false)} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer' }}>✕</button>
             </div>
             
-            <div style={{ background: '#f8f9fa', padding: '10px', borderRadius: '4px', marginBottom: '15px', fontSize: '12px' }}>
-              <strong>Available Variables Injection:</strong> <span style={{ color: '#673ab7' }}>{"{{Timestamp}}"}</span>
-              {form.fields.map(f => <span key={f.id} style={{ color: '#007bff', marginLeft: '8px' }}>{"{{"}{f.label}{"}}"}</span>)}
+            <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
+              <div style={{ flex: 1, background: '#f8f9fa', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }}>
+                <h4>Select Questions to Include</h4>
+                <div style={{ maxHeight: '150px', overflowY: 'auto', fontSize: '13px' }}>
+                  {form.fields.map(f => (
+                    <label key={f.id} style={{ display: 'block', marginBottom: '5px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={selectedFieldsForMail.includes(f.id)} onChange={() => toggleFieldForMail(f.id)} style={{ marginRight: '8px' }} />
+                      {f.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div style={{ flex: 1, background: '#f8f9fa', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }}>
+                <h4>File Handling</h4>
+                <label style={{ display: 'block', marginBottom: '8px', cursor: 'pointer' }}>
+                  <input type="radio" name="fileMode" checked={mailFileMode === 'link'} onChange={() => toggleFileMode('link')} style={{ marginRight: '8px' }} />
+                  Show URLs in Body
+                </label>
+                <label style={{ display: 'block', cursor: 'pointer' }}>
+                  <input type="radio" name="fileMode" checked={mailFileMode === 'attach'} onChange={() => toggleFileMode('attach')} style={{ marginRight: '8px' }} />
+                  Attach Files Directly
+                </label>
+              </div>
             </div>
 
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Recipient Email (To):</label>
-              <input type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="user@example.com" style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }} />
+              <input type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="user@example.com" style={{ width: '100%', padding: '8px', boxSizing: 'border-box', border: '1px solid #ccc', borderRadius: '4px' }} />
             </div>
 
-            <div style={{ marginBottom: '12px' }}>
+            <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Email Subject:</label>
-              <input type="text" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }} />
+              <input type="text" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} style={{ width: '100%', padding: '8px', boxSizing: 'border-box', border: '1px solid #ccc', borderRadius: '4px' }} />
             </div>
 
             <div style={{ display: 'flex', borderBottom: '1px solid #ccc', marginBottom: '15px' }}>
-              <button onClick={() => setPreviewTab(false)} style={{ padding: '8px 16px', background: !previewTab ? '#fff' : '#eee', border: '1px solid #ccc', borderBottom: !previewTab ? 'none' : '1px solid #ccc', cursor: 'pointer' }}>Script / HTML Editor</button>
-              <button onClick={() => setPreviewTab(true)} style={{ padding: '8px 16px', background: previewTab ? '#fff' : '#eee', border: '1px solid #ccc', borderBottom: previewTab ? 'none' : '1px solid #ccc', cursor: 'pointer' }}>Live Script Preview</button>
+              <button onClick={() => setPreviewTab(false)} style={{ padding: '8px 16px', background: !previewTab ? '#fff' : '#eee', border: '1px solid #ccc', borderBottom: !previewTab ? 'none' : '1px solid #ccc', cursor: 'pointer' }}>HTML Script Editor</button>
+              <button onClick={() => setPreviewTab(true)} style={{ padding: '8px 16px', background: previewTab ? '#fff' : '#eee', border: '1px solid #ccc', borderBottom: previewTab ? 'none' : '1px solid #ccc', cursor: 'pointer' }}>Live Preview</button>
             </div>
 
             {!previewTab ? (
-              <div style={{ marginBottom: '15px' }}>
-                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>HTML Content / Script Body:</label>
-                <textarea value={emailTemplate} onChange={(e) => setEmailTemplate(e.target.value)} style={{ width: '100%', height: '180px', padding: '10px', boxSizing: 'border-box', fontFamily: 'monospace' }} />
-              </div>
+              <textarea value={emailTemplate} onChange={(e) => setEmailTemplate(e.target.value)} style={{ width: '100%', height: '180px', padding: '10px', boxSizing: 'border-box', fontFamily: 'monospace', border: '1px solid #ccc', borderRadius: '4px' }} />
             ) : (
-              <div style={{ border: '1px solid #ccc', padding: '15px', minHeight: '180px', marginBottom: '15px', borderRadius: '4px', background: '#fafafa' }}>
+              <div style={{ border: '1px solid #ccc', padding: '15px', minHeight: '180px', borderRadius: '4px', background: '#fff' }}>
                 <div dangerouslySetInnerHTML={{ __html: parseMailTemplate(emailTemplate, activeResp) }} />
               </div>
             )}
 
-            <div style={{ textAlign: 'right' }}>
+            <div style={{ textAlign: 'right', marginTop: '20px' }}>
               <button onClick={() => setMailModalActive(false)} style={{ background: '#6c757d', color: 'white', padding: '10px 20px', border: 'none', borderRadius: '4px', cursor: 'pointer', marginRight: '10px' }}>Cancel</button>
               <button onClick={sendCustomMail} disabled={sendingMail} style={{ background: '#28a745', color: 'white', padding: '10px 20px', border: 'none', borderRadius: '4px', cursor: sendingMail ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>
                 {sendingMail ? 'Dispatching Mail...' : 'Execute & Send Mail'}
