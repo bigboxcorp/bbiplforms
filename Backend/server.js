@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -32,6 +32,18 @@ const ddbClient = new DynamoDBClient({
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+app.get('/api/forms', async (req, res) => {
+  try {
+    const command = new ScanCommand({
+      TableName: process.env.DYNAMODB_FORMS_TABLE,
+    });
+    const response = await docClient.send(command);
+    res.status(200).json(response.Items || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.post('/api/forms', async (req, res) => {
   try {
@@ -68,6 +80,42 @@ app.get('/api/forms/:formId', async (req, res) => {
       return res.status(404).json({ error: 'Form not found' });
     }
     res.status(200).json(response.Item);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/forms/:formId', async (req, res) => {
+  try {
+    const { formId } = req.params;
+    const { title, fields } = req.body;
+
+    const command = new PutCommand({
+      TableName: process.env.DYNAMODB_FORMS_TABLE,
+      Item: {
+        formId,
+        title,
+        fields,
+      },
+    });
+
+    await docClient.send(command);
+    res.status(200).json({ formId, message: 'Form updated successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/forms/:formId', async (req, res) => {
+  try {
+    const command = new DeleteCommand({
+      TableName: process.env.DYNAMODB_FORMS_TABLE,
+      Key: {
+        formId: req.params.formId,
+      },
+    });
+    await docClient.send(command);
+    res.status(200).json({ message: 'Form deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

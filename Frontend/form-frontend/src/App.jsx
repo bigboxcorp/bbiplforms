@@ -1,14 +1,101 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
-import axios from 'react-router-dom';
-import axiosInstance from 'axios';
+import { BrowserRouter, Routes, Route, useParams, Link, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
 const API_URL = 'https://api.bbipl.org/api';
 
+function AdminDashboard() {
+  const [forms, setForms] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchForms();
+  }, []);
+
+  const fetchForms = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/forms`);
+      setForms(res.data);
+    } catch (error) {
+      alert('Error fetching forms');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteForm = async (formId) => {
+    if (window.confirm('Are you sure you want to delete this form?')) {
+      try {
+        await axios.delete(`${API_URL}/forms/${formId}`);
+        setForms(forms.filter((f) => f.formId !== formId));
+      } catch (error) {
+        alert('Error deleting form');
+      }
+    }
+  };
+
+  if (loading) return <div style={{ padding: '30px', textAlign: 'center' }}>Loading Dashboard...</div>;
+
+  return (
+    <div style={{ padding: '30px', maxWidth: '900px', margin: 'auto', fontFamily: 'Segoe UI, sans-serif' }}>
+      <div style={{ background: 'white', padding: '30px', borderRadius: '10px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2>Custom Form Generator Panel</h2>
+        <Link to="/create" style={{ background: '#28a745', color: 'white', padding: '10px 20px', borderRadius: '5px', textDecoration: 'none', fontWeight: 'bold' }}>+ Create New Form</Link>
+      </div>
+
+      <div style={{ background: 'white', padding: '20px', borderRadius: '10px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+        <h3>Your Created Forms ({forms.length})</h3>
+        {forms.length === 0 ? (
+          <p>No forms created yet. Click the button above to start.</p>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '15px' }}>
+            <thead>
+              <tr style={{ background: '#f4f4f4', borderBottom: '2px solid #ddd' }}>
+                <th style={{ padding: '12px', textAlign: 'left' }}>Form Title</th>
+                <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {forms.map((form) => (
+                <tr key={form.formId} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '12px', fontWeight: '500' }}>{form.title || 'Untitled Form'}</td>
+                  <td style={{ padding: '12px', display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                    <a href={`${window.location.origin}/form/${form.formId}`} target="_blank" rel="noopener noreferrer" style={{ background: '#007bff', color: 'white', padding: '6px 12px', borderRadius: '4px', textDecoration: 'none', fontSize: '14px' }}>Public Link</a>
+                    <Link to={`/responses/${form.formId}`} style={{ background: '#17a2b8', color: 'white', padding: '6px 12px', borderRadius: '4px', textDecoration: 'none', fontSize: '14px' }}>Responses</Link>
+                    <Link to={`/edit/${form.formId}`} style={{ background: '#ffc107', color: 'black', padding: '6px 12px', borderRadius: '4px', textDecoration: 'none', fontSize: '14px', fontWeight: '500' }}>Edit</Link>
+                    <button onClick={() => deleteForm(form.formId)} style={{ background: '#dc3545', color: 'white', padding: '6px 12px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function FormBuilder() {
+  const { formId } = useParams();
+  const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [fields, setFields] = useState([]);
   const [publishedData, setPublishedData] = useState(null);
+
+  useEffect(() => {
+    if (formId) {
+      const fetchExistingForm = async () => {
+        try {
+          const res = await axios.get(`${API_URL}/forms/${formId}`);
+          setTitle(res.data.title);
+          setFields(res.data.fields || []);
+        } catch (error) {
+          alert('Error loading form data');
+        }
+      };
+      fetchExistingForm();
+    }
+  }, [formId]);
 
   const addField = (type) => {
     const newField = {
@@ -49,9 +136,15 @@ function FormBuilder() {
 
   const saveForm = async () => {
     try {
-      const res = await axiosInstance.post(`${API_URL}/forms`, { title, fields });
-      const fLink = `${window.location.origin}/form/${res.data.formId}`;
-      const dLink = `${window.location.origin}/dashboard/${res.data.formId}`;
+      let finalFormId = formId;
+      if (formId) {
+        await axios.put(`${API_URL}/forms/${formId}`, { title, fields });
+      } else {
+        const res = await axios.post(`${API_URL}/forms`, { title, fields });
+        finalFormId = res.data.formId;
+      }
+      const fLink = `${window.location.origin}/form/${finalFormId}`;
+      const dLink = `${window.location.origin}/responses/${finalFormId}`;
       setPublishedData({
         formLink: fLink,
         dashboardLink: dLink,
@@ -64,8 +157,9 @@ function FormBuilder() {
 
   return (
     <div style={{ padding: '30px', maxWidth: '800px', margin: 'auto', fontFamily: 'Segoe UI, sans-serif' }}>
+      <Link to="/" style={{ display: 'inline-block', marginBottom: '20px', color: '#007bff', textDecoration: 'none', fontWeight: 'bold' }}>← Back to Dashboard</Link>
       <div style={{ background: 'white', padding: '30px', borderRadius: '10px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', borderTop: '8px solid #007bff' }}>
-        <h2>Custom Form Generator</h2>
+        <h2>{formId ? 'Edit Form' : 'Custom Form Generator'}</h2>
         <input
           type="text"
           placeholder="Untitled Form"
@@ -138,15 +232,15 @@ function FormBuilder() {
         </div>
 
         <button onClick={saveForm} style={{ display: 'block', marginTop: '30px', background: '#28a745', color: 'white', padding: '12px 25px', border: 'none', borderRadius: '5px', fontSize: '16px', cursor: 'pointer' }}>
-          Generate Form & QR Code
+          {formId ? 'Update Form Changes' : 'Generate Form & QR Code'}
         </button>
 
         {publishedData && (
           <div style={{ marginTop: '20px', padding: '20px', background: '#e2f0d9', border: '1px solid #385723', borderRadius: '5px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <h3>Generated Successfully!</h3>
+              <h3>Saved Successfully!</h3>
               <p><strong>Form Link:</strong> <a href={publishedData.formLink} target="_blank" rel="noopener noreferrer">{publishedData.formLink}</a></p>
-              <p><strong>Dashboard:</strong> <a href={publishedData.dashboardLink} target="_blank" rel="noopener noreferrer">{publishedData.dashboardLink}</a></p>
+              <p><strong>Responses Board:</strong> <a href={publishedData.dashboardLink} target="_blank" rel="noopener noreferrer">{publishedData.dashboardLink}</a></p>
             </div>
             <div style={{ textAlign: 'center' }}>
               <img src={publishedData.qrCodeUrl} alt="Form QR Code" style={{ border: '1px solid #ccc', padding: '5px', background: 'white' }} />
@@ -169,7 +263,7 @@ function FormViewer() {
   useEffect(() => {
     const fetchForm = async () => {
       try {
-        const res = await axiosInstance.get(`${API_URL}/forms/${formId}`);
+        const res = await axios.get(`${API_URL}/forms/${formId}`);
         setFormData(res.data);
       } catch (error) {
         alert("Form not found");
@@ -215,7 +309,7 @@ function FormViewer() {
     Object.keys(files).forEach((key) => data.append(key, files[key]));
 
     try {
-      await axiosInstance.post(`${API_URL}/responses/${formId}`, data, {
+      await axios.post(`${API_URL}/responses/${formId}`, data, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setSubmitted(true);
@@ -224,8 +318,8 @@ function FormViewer() {
     }
   };
 
-  if (!formData) return <div>Loading Form...</div>;
-  if (submitted) return <div style={{ padding: '5px', textAlign: 'center' }}><h2>Response Recorded!</h2></div>;
+  if (!formData) return <div style={{ padding: '30px', textAlign: 'center' }}>Loading Form...</div>;
+  if (submitted) return <div style={{ padding: '50px', textAlign: 'center' }}><h2>Response Recorded!</h2></div>;
 
   return (
     <div style={{ padding: '20px', maxWidth: '700px', margin: 'auto' }}>
@@ -298,7 +392,7 @@ function FormViewer() {
   );
 }
 
-function Dashboard() {
+function ResponseDashboard() {
   const { formId } = useParams();
   const [responses, setResponses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -306,7 +400,7 @@ function Dashboard() {
   useEffect(() => {
     const fetchResponses = async () => {
       try {
-        const res = await axiosInstance.get(`${API_URL}/responses/${formId}`);
+        const res = await axios.get(`${API_URL}/responses/${formId}`);
         setResponses(res.data);
       } catch (error) {
         alert("Error fetching dashboard");
@@ -317,10 +411,11 @@ function Dashboard() {
     fetchResponses();
   }, [formId]);
 
-  if (loading) return <div>Loading Panel...</div>;
+  if (loading) return <div style={{ padding: '30px', textAlign: 'center' }}>Loading Panel...</div>;
 
   return (
-    <div style={{ padding: '20px', maxWidth: '1000px', margin: 'auto' }}>
+    <div style={{ padding: '20px', maxWidth: '1000px', margin: 'auto', fontFamily: 'Segoe UI, sans-serif' }}>
+      <Link to="/" style={{ display: 'inline-block', marginBottom: '20px', color: '#007bff', textDecoration: 'none', fontWeight: 'bold' }}>← Back to Dashboard</Link>
       <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
         <h2>Dynamic Responses Table ({responses.length})</h2>
         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '20px' }}>
@@ -361,9 +456,11 @@ function App() {
     <div style={{ backgroundColor: '#f0f2f5', minHeight: '100vh', padding: '10px 0' }}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<FormBuilder />} />
+          <Route path="/" element={<AdminDashboard />} />
+          <Route path="/create" element={<FormBuilder />} />
+          <Route path="/edit/:formId" element={<FormBuilder />} />
           <Route path="/form/:formId" element={<FormViewer />} />
-          <Route path="/dashboard/:formId" element={<Dashboard />} />
+          <Route path="/responses/:formId" element={<ResponseDashboard />} />
         </Routes>
       </BrowserRouter>
     </div>
