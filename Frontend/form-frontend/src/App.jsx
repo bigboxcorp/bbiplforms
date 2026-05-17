@@ -4,6 +4,14 @@ import axios from 'axios';
 
 const API_URL = 'https://api.bbipl.org/api';
 
+const getShortUrl = (longUrl) => {
+  if (typeof longUrl === 'string' && longUrl.includes('.amazonaws.com/')) {
+    const key = longUrl.split('.amazonaws.com/')[1];
+    return `${API_URL}/file?key=${encodeURIComponent(key)}`;
+  }
+  return longUrl;
+};
+
 function AdminDashboard() {
   const [forms, setForms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -635,10 +643,14 @@ function ResponseDashboard() {
           const ans = resp.answers[field.id];
           if (!ans) return '';
           if (Array.isArray(ans)) {
-            return ans.map((url, idx) => `=HYPERLINK(""${url}"", ""File ${idx + 1}"")`).join(' | ');
+            return ans.map((url, idx) => {
+              const shortUrl = getShortUrl(url);
+              return `=HYPERLINK("${shortUrl}", "File ${idx + 1}")`;
+            }).join(' | ');
           }
           if (typeof ans === 'string' && ans.startsWith('http')) {
-             return `=HYPERLINK(""${ans}"", ""View File"")`;
+             const shortUrl = getShortUrl(ans);
+             return `=HYPERLINK("${shortUrl}", "View File")`;
           }
           return String(ans).replace(/"/g, '""');
         })
@@ -703,8 +715,12 @@ function ResponseDashboard() {
       const ans = resp.answers[f.id];
       let txt = '-';
       if (ans) {
-        if (Array.isArray(ans)) txt = ans.map((l, i) => `<a href="${l}">File ${i + 1}</a>`).join(', ');
-        else if (typeof ans === 'string' && ans.startsWith('http')) txt = `<a href="${ans}">View File</a>`;
+        if (Array.isArray(ans)) {
+           txt = ans.map((l, i) => `<a href="${getShortUrl(l)}">File ${i + 1}</a>`).join(', ');
+        }
+        else if (typeof ans === 'string' && ans.startsWith('http')) {
+           txt = `<a href="${getShortUrl(ans)}">View File</a>`;
+        }
         else txt = ans.toString();
       }
       parsed = parsed.split(`{{${f.id}}}`).join(txt);
@@ -742,7 +758,8 @@ function ResponseDashboard() {
       alert('Mail dispatched successfully!');
       setMailModalActive(false);
     } catch (e) {
-      alert('Failed to send mail. Check your backend SMTP config.');
+      const errDetail = e.response?.data?.error || e.message;
+      alert(`Failed to send mail. Server Error: ${errDetail}\nPlease check your Office 365 / SMTP settings.`);
     } finally {
       setSendingMail(false);
     }
@@ -756,7 +773,7 @@ function ResponseDashboard() {
           {ans.map((item, idx) => (
             <React.Fragment key={idx}>
               {typeof item === 'string' && item.startsWith('http') ? (
-                <a href={item} target="_blank" rel="noopener noreferrer" style={{ color: '#1a73e8', textDecoration: 'none', background: '#e8f0fe', padding: '2px 6px', borderRadius: '4px', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                <a href={getShortUrl(item)} target="_blank" rel="noopener noreferrer" style={{ color: '#1a73e8', textDecoration: 'none', background: '#e8f0fe', padding: '2px 6px', borderRadius: '4px', fontSize: '12px', whiteSpace: 'nowrap' }}>
                   📄 File {idx + 1}
                 </a>
               ) : (
@@ -768,7 +785,7 @@ function ResponseDashboard() {
         </div>
       );
     }
-    if (typeof ans === 'string' && ans.startsWith('http')) return <a href={ans} target="_blank" rel="noopener noreferrer" style={{ color: '#1a73e8' }}>📄 File 1</a>;
+    if (typeof ans === 'string' && ans.startsWith('http')) return <a href={getShortUrl(ans)} target="_blank" rel="noopener noreferrer" style={{ color: '#1a73e8' }}>📄 File 1</a>;
     if (typeof ans === 'string' && (ans.startsWith('{') || ans.startsWith('['))) {
       try {
         const parsed = JSON.parse(ans);
