@@ -138,7 +138,12 @@ app.post('/api/responses/:formId', upload.any(), async (req, res) => {
           ContentType: file.mimetype,
         });
         await s3Client.send(s3Command);
-        fileUrls[file.fieldname] = `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
+        const url = `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
+        
+        if (!fileUrls[file.fieldname]) {
+          fileUrls[file.fieldname] = [];
+        }
+        fileUrls[file.fieldname].push(url);
       }
     }
 
@@ -177,12 +182,22 @@ app.get('/api/responses/:formId', async (req, res) => {
     for (const item of items) {
       if (item.answers) {
         for (const [key, value] of Object.entries(item.answers)) {
-          if (typeof value === 'string' && value.includes('.amazonaws.com/')) {
+          if (Array.isArray(value)) {
+            const signedUrls = [];
+            for (const url of value) {
+              if (typeof url === 'string' && url.includes('.amazonaws.com/')) {
+                const fileKey = url.split('.amazonaws.com/')[1];
+                const s3GetCommand = new GetObjectCommand({ Bucket: process.env.S3_BUCKET_NAME, Key: fileKey });
+                const signedUrl = await getSignedUrl(s3Client, s3GetCommand, { expiresIn: 3600 });
+                signedUrls.push(signedUrl);
+              } else {
+                signedUrls.push(url);
+              }
+            }
+            item.answers[key] = signedUrls;
+          } else if (typeof value === 'string' && value.includes('.amazonaws.com/')) {
             const fileKey = value.split('.amazonaws.com/')[1];
-            const s3GetCommand = new GetObjectCommand({
-              Bucket: process.env.S3_BUCKET_NAME,
-              Key: fileKey,
-            });
+            const s3GetCommand = new GetObjectCommand({ Bucket: process.env.S3_BUCKET_NAME, Key: fileKey });
             const signedUrl = await getSignedUrl(s3Client, s3GetCommand, { expiresIn: 3600 });
             item.answers[key] = signedUrl;
           }

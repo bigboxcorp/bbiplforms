@@ -77,7 +77,6 @@ function AdminDashboard() {
 
 function FormBuilder() {
   const { formId } = useParams();
-  const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [fields, setFields] = useState([]);
   const [publishedData, setPublishedData] = useState(null);
@@ -97,12 +96,14 @@ function FormBuilder() {
     }
   }, [formId]);
 
-  const addField = (type) => {
+  const addBlankQuestion = () => {
     const newField = {
       id: Date.now().toString(),
-      type,
+      type: 'text',
       label: '',
-      required: true,
+      required: false,
+      textValidation: 'none',
+      maxFileCount: 1,
       options: ['Option 1'],
       rows: ['Row 1'],
       columns: ['Column 1']
@@ -112,6 +113,21 @@ function FormBuilder() {
 
   const updateField = (id, key, value) => {
     setFields(fields.map((f) => (f.id === id ? { ...f, [key]: value } : f)));
+  };
+
+  const deleteField = (id) => {
+    setFields(fields.filter((f) => f.id !== id));
+  };
+
+  const moveField = (index, direction) => {
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === fields.length - 1) return;
+    const newFields = [...fields];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    const temp = newFields[index];
+    newFields[index] = newFields[targetIndex];
+    newFields[targetIndex] = temp;
+    setFields(newFields);
   };
 
   const addListItem = (id, key, label) => {
@@ -169,69 +185,113 @@ function FormBuilder() {
         />
 
         {fields.map((field, index) => (
-          <div key={field.id} style={{ border: '1px solid #ddd', padding: '20px', marginBottom: '15px', borderRadius: '8px', background: '#fdfdfd' }}>
-            <span style={{ background: '#007bff', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' }}>
-              Q{index + 1}: {field.type.toUpperCase()}
-            </span>
+          <div key={field.id} style={{ border: '1px solid #ddd', padding: '20px', marginBottom: '15px', borderRadius: '8px', background: '#fdfdfd', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '5px' }}>
+                <button onClick={() => moveField(index, 'up')} disabled={index === 0} style={{ padding: '2px 6px', cursor: 'pointer' }}>▲</button>
+                <button onClick={() => moveField(index, 'down')} disabled={index === fields.length - 1} style={{ padding: '2px 6px', cursor: 'pointer' }}>▼</button>
+                <span style={{ marginLeft: '10px', fontWeight: 'bold', alignSelf: 'center' }}>Question {index + 1}</span>
+              </div>
+              <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                <select value={field.type} onChange={(e) => updateField(field.id, 'type', e.target.value)} style={{ padding: '5px', borderRadius: '4px' }}>
+                  <option value="text">Short Answer</option>
+                  <option value="paragraph">Paragraph</option>
+                  <option value="radio">Multiple Choice</option>
+                  <option value="checkbox">Checkbox</option>
+                  <option value="dropdown">Dropdown</option>
+                  <option value="file">File Upload</option>
+                  <option value="rating">Rating</option>
+                  <option value="grid-radio">Multiple Choice Grid</option>
+                  <option value="grid-checkbox">Checkbox Grid</option>
+                  <option value="date">Date</option>
+                  <option value="time">Time</option>
+                </select>
+                <button onClick={() => deleteField(field.id)} style={{ background: '#dc3545', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>Delete</button>
+              </div>
+            </div>
+
             <input
               type="text"
               placeholder="Enter Question Text"
               value={field.label}
               onChange={(e) => updateField(field.id, 'label', e.target.value)}
-              style={{ width: '95%', padding: '10px', margin: '10px 0', fontSize: '16px', borderRadius: '4px', border: '1px solid #ccc' }}
+              style={{ width: '95%', padding: '10px', margin: '15px 0 10px 0', fontSize: '16px', borderRadius: '4px', border: '1px solid #ccc' }}
             />
 
+            {['text', 'paragraph'].includes(field.type) && (
+              <div style={{ marginTop: '5px' }}>
+                <label style={{ fontSize: '14px', marginRight: '10px' }}>Validation:</label>
+                <select value={field.textValidation || 'none'} onChange={(e) => updateField(field.id, 'textValidation', e.target.value)} style={{ padding: '3px' }}>
+                  <option value="none">None</option>
+                  <option value="email">Email Address</option>
+                  <option value="number">Number Only</option>
+                </select>
+              </div>
+            )}
+
+            {field.type === 'file' && (
+              <div style={{ marginTop: '5px', background: '#f0f0f0', padding: '10px', borderRadius: '4px' }}>
+                <label style={{ fontSize: '14px', marginRight: '10px' }}>Max file count:</label>
+                <select value={field.maxFileCount || 1} onChange={(e) => updateField(field.id, 'maxFileCount', parseInt(e.target.value))} style={{ padding: '3px', marginRight: '20px' }}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <span style={{ fontSize: '13px', color: '#666' }}>Max file size limit: 5MB per file</span>
+              </div>
+            )}
+
             {['radio', 'checkbox', 'dropdown'].includes(field.type) && (
-              <div>
+              <div style={{ marginTop: '10px' }}>
                 {field.options.map((opt, i) => (
                   <input
                     key={i}
                     type="text"
                     value={opt}
                     onChange={(e) => updateListItem(field.id, 'options', i, e.target.value)}
-                    style={{ display: 'block', margin: '5px 0', padding: '5px' }}
+                    style={{ display: 'block', margin: '5px 0', padding: '5px', width: '60%' }}
                   />
                 ))}
-                <button onClick={() => addListItem(field.id, 'options', 'Option')} style={{ marginTop: '5px' }}>+ Add Option</button>
+                <button onClick={() => addListItem(field.id, 'options', 'Option')} style={{ marginTop: '5px', padding: '3px 8px' }}>+ Add Option</button>
               </div>
             )}
 
             {['grid-radio', 'grid-checkbox'].includes(field.type) && (
-              <div style={{ display: 'flex', gap: '20px' }}>
+              <div style={{ display: 'flex', gap: '40px', marginTop: '10px' }}>
                 <div>
-                  <h4>Rows</h4>
+                  <h5>Rows</h5>
                   {field.rows.map((row, i) => (
                     <input key={i} type="text" value={row} onChange={(e) => updateListItem(field.id, 'rows', i, e.target.value)} style={{ display: 'block', margin: '3px 0' }} />
                   ))}
-                  <button onClick={() => addListItem(field.id, 'rows', 'Row')}>+ Add Row</button>
+                  <button onClick={() => addListItem(field.id, 'rows', 'Row')} style={{ padding: '2px 5px' }}>+ Add Row</button>
                 </div>
                 <div>
-                  <h4>Columns</h4>
+                  <h5>Columns</h5>
                   {field.columns.map((col, i) => (
                     <input key={i} type="text" value={col} onChange={(e) => updateListItem(field.id, 'columns', i, e.target.value)} style={{ display: 'block', margin: '3px 0' }} />
                   ))}
-                  <button onClick={() => addListItem(field.id, 'columns', 'Column')}>+ Add Column</button>
+                  <button onClick={() => addListItem(field.id, 'columns', 'Column')} style={{ padding: '2px 5px' }}>+ Add Column</button>
                 </div>
               </div>
             )}
+
+            <div style={{ marginTop: '15px', borderTop: '1px solid #eee', paddingTop: '10px', textAlign: 'right' }}>
+              <label style={{ fontSize: '14px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={field.required || false}
+                  onChange={(e) => updateField(field.id, 'required', e.target.checked)}
+                  style={{ marginRight: '5px' }}
+                />
+                Required
+              </label>
+            </div>
           </div>
         ))}
 
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '20px' }}>
-          <button onClick={() => addField('text')}>Short Answer</button>
-          <button onClick={() => addField('paragraph')}>Paragraph</button>
-          <button onClick={() => addField('radio')}>Multiple Choice</button>
-          <button onClick={() => addField('checkbox')}>Checkbox</button>
-          <button onClick={() => addField('dropdown')}>Dropdown</button>
-          <button onClick={() => addField('file')}>File Upload</button>
-          <button onClick={() => addField('rating')}>Rating</button>
-          <button onClick={() => addField('grid-radio')}>Multiple Choice Grid</button>
-          <button onClick={() => addField('grid-checkbox')}>Checkbox Grid</button>
-          <button onClick={() => addField('date')}>Date</button>
-          <button onClick={() => addField('time')}>Time</button>
-        </div>
+        <button onClick={addBlankQuestion} style={{ display: 'block', width: '100%', padding: '12px', background: '#f0f4f9', border: '2px dashed #007bff', color: '#007bff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', marginTop: '20px' }}>
+          + Add Question
+        </button>
 
-        <button onClick={saveForm} style={{ display: 'block', marginTop: '30px', background: '#28a745', color: 'white', padding: '12px 25px', border: 'none', borderRadius: '5px', fontSize: '16px', cursor: 'pointer' }}>
+        <button onClick={saveForm} style={{ display: 'block', marginTop: '30px', width: '100%', background: '#28a745', color: 'white', padding: '14px', border: 'none', borderRadius: '6px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}>
           {formId ? 'Update Form Changes' : 'Generate Form & QR Code'}
         </button>
 
@@ -244,7 +304,7 @@ function FormBuilder() {
             </div>
             <div style={{ textAlign: 'center' }}>
               <img src={publishedData.qrCodeUrl} alt="Form QR Code" style={{ border: '1px solid #ccc', padding: '5px', background: 'white' }} />
-              <br /><small>Scan to Fill Form</small>
+              <br /><small style={{ fontWeight: 'bold' }}>Scan to Fill Form</small>
             </div>
           </div>
         )}
@@ -302,11 +362,44 @@ function FormViewer() {
     setResponses({ ...responses, [qId]: JSON.stringify(current) });
   };
 
+  const handleFileSelector = (qId, fileList, maxCount) => {
+    const selectedFiles = Array.from(fileList);
+    if (selectedFiles.length > maxCount) {
+      alert(`You can only upload a maximum of ${maxCount} files for this question.`);
+      return;
+    }
+    for (let file of selectedFiles) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert(`File "${file.name}" exceeds the 5MB size limit.`);
+        return;
+      }
+    }
+    setFiles({ ...files, [qId]: selectedFiles });
+  };
+
   const submitForm = async (e) => {
     e.preventDefault();
+
+    for (let field of formData.fields) {
+      const responseVal = responses[field.id];
+      if (['text', 'paragraph'].includes(field.type) && responseVal) {
+        if (field.textValidation === 'email') {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(responseVal)) {
+            alert(`Please enter a valid email address for: ${field.label}`);
+            return;
+          }
+        }
+      }
+    }
+
     const data = new FormData();
     Object.keys(responses).forEach((key) => data.append(key, responses[key]));
-    Object.keys(files).forEach((key) => data.append(key, files[key]));
+    Object.keys(files).forEach((key) => {
+      files[key].forEach((file) => {
+        data.append(key, file);
+      });
+    });
 
     try {
       await axios.post(`${API_URL}/responses/${formId}`, data, {
@@ -319,7 +412,7 @@ function FormViewer() {
   };
 
   if (!formData) return <div style={{ padding: '30px', textAlign: 'center' }}>Loading Form...</div>;
-  if (submitted) return <div style={{ padding: '50px', textAlign: 'center' }}><h2>Response Recorded!</h2></div>;
+  if (submitted) return <div style={{ padding: '50px', textAlign: 'center' }}><h2>Response Recorded Successfully!</h2></div>;
 
   return (
     <div style={{ padding: '20px', maxWidth: '700px', margin: 'auto' }}>
@@ -327,33 +420,58 @@ function FormViewer() {
         <h1>{formData.title}</h1>
         {formData.fields.map((field) => (
           <div key={field.id} style={{ marginBottom: '25px', padding: '15px', border: '1px solid #eee', borderRadius: '6px' }}>
-            <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>{field.label}</label>
+            <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold' }}>
+              {field.label} {field.required && <span style={{ color: 'red' }}>*</span>}
+            </label>
 
-            {field.type === 'text' && <input type="text" onChange={(e) => handleSimpleChange(field.id, e.target.value)} required style={{ width: '90%' }} />}
-            {field.type === 'paragraph' && <textarea onChange={(e) => handleSimpleChange(field.id, e.target.value)} required style={{ width: '90%', height: '80px' }} />}
-            {field.type === 'date' && <input type="date" onChange={(e) => handleSimpleChange(field.id, e.target.value)} required />}
-            {field.type === 'time' && <input type="time" onChange={(e) => handleSimpleChange(field.id, e.target.value)} required />}
-            {field.type === 'file' && <input type="file" onChange={(e) => setFiles({ ...files, [field.id]: e.target.files[0] })} required />}
+            {field.type === 'text' && (
+              <input 
+                type={field.textValidation === 'number' ? 'number' : 'text'} 
+                onChange={(e) => handleSimpleChange(field.id, e.target.value)} 
+                required={field.required} 
+                style={{ width: '90%', padding: '8px' }} 
+              />
+            )}
+            
+            {field.type === 'paragraph' && (
+              <textarea 
+                onChange={(e) => handleSimpleChange(field.id, e.target.value)} 
+                required={field.required} 
+                style={{ width: '90%', height: '80px', padding: '8px' }} 
+              />
+            )}
+            
+            {field.type === 'date' && <input type="date" onChange={(e) => handleSimpleChange(field.id, e.target.value)} required={field.required} style={{ padding: '8px' }} />}
+            {field.type === 'time' && <input type="time" onChange={(e) => handleSimpleChange(field.id, e.target.value)} required={field.required} style={{ padding: '8px' }} />}
+            
+            {field.type === 'file' && (
+              <input 
+                type="file" 
+                multiple={field.maxFileCount > 1} 
+                onChange={(e) => handleFileSelector(field.id, e.target.files, field.maxFileCount || 1)} 
+                required={field.required} 
+              />
+            )}
 
             {field.type === 'dropdown' && (
-              <select onChange={(e) => handleSimpleChange(field.id, e.target.value)} required>
+              <select onChange={(e) => handleSimpleChange(field.id, e.target.value)} required={field.required} style={{ padding: '8px' }}>
                 <option value="">Select Option</option>
                 {field.options.map((opt, i) => <option key={i} value={opt}>{opt}</option>)}
               </select>
             )}
 
             {field.type === 'radio' && field.options.map((opt, i) => (
-              <div key={i}><label><input type="radio" name={field.id} value={opt} onChange={(e) => handleSimpleChange(field.id, e.target.value)} required /> {opt}</label></div>
+              <div key={i} style={{ margin: '5px 0' }}><label><input type="radio" name={field.id} value={opt} onChange={(e) => handleSimpleChange(field.id, e.target.value)} required={field.required} /> {opt}</label></div>
             ))}
 
             {field.type === 'checkbox' && field.options.map((opt, i) => (
-              <div key={i}><label><input type="checkbox" onChange={(e) => handleCheckboxChange(field.id, opt, e.target.checked)} /> {opt}</label></div>
+              <div key={i} style={{ margin: '5px 0' }}><label><input type="checkbox" onChange={(e) => handleCheckboxChange(field.id, opt, e.target.checked)} /> {opt}</label></div>
             ))}
 
             {field.type === 'rating' && (
-              <div style={{ display: 'flex', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '15px', margin: '5px 0' }}>
                 {[1, 2, 3, 4, 5].map((num) => (
-                  <label key={num}><input type="radio" name={field.id} value={num} onChange={(e) => handleSimpleChange(field.id, e.target.value)} required /> {num}★</label>
+                  <label key={num} style={{ cursor: 'pointer' }}><input type="radio" name={field.id} value={num} onChange={(e) => handleSimpleChange(field.id, e.target.value)} required={field.required} /> {num}★</label>
                 ))}
               </div>
             )}
@@ -363,19 +481,20 @@ function FormViewer() {
                 <thead>
                   <tr>
                     <th></th>
-                    {field.columns.map((col, cIdx) => <th key={cIdx}>{col}</th>)}
+                    {field.columns.map((col, cIdx) => <th key={cIdx} style={{ padding: '8px', background: '#f4f4f4' }}>{col}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {field.rows.map((row, rIdx) => (
                     <tr key={rIdx}>
-                      <td style={{ border: '1px solid #ddd', padding: '8px' }}>{row}</td>
+                      <td style={{ border: '1px solid #ddd', padding: '8px', fontWeight: '500' }}>{row}</td>
                       {field.columns.map((col, cIdx) => (
                         <td key={cIdx} style={{ border: '1px solid #ddd', padding: '8px', textAlign: 'center' }}>
                           <input
                             type={field.type === 'grid-radio' ? 'radio' : 'checkbox'}
                             name={`${field.id}-${row}`}
                             onChange={(e) => handleGridChange(field.id, row, col, field.type === 'grid-checkbox')}
+                            required={field.required && field.type === 'grid-radio'}
                           />
                         </td>
                       ))}
@@ -386,7 +505,7 @@ function FormViewer() {
             )}
           </div>
         ))}
-        <button type="submit" style={{ background: '#007bff', color: 'white', padding: '10px 20px', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Submit Response</button>
+        <button type="submit" style={{ background: '#007bff', color: 'white', padding: '12px 24px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}>Submit Response</button>
       </form>
     </div>
   );
@@ -428,13 +547,19 @@ function ResponseDashboard() {
           <tbody>
             {responses.map((resp) => (
               <tr key={resp.responseId} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '10px', verticalAlign: 'top' }}>{new Date(resp.submittedAt).toLocaleString()}</td>
+                <td style={{ padding: '10px', verticalAlign: 'top', minWidth: '150px' }}>{new Date(resp.submittedAt).toLocaleString()}</td>
                 <td style={{ padding: '10px' }}>
                   {Object.entries(resp.answers).map(([qId, ans]) => (
                     <div key={qId} style={{ marginBottom: '8px', background: '#fdfdfd', padding: '6px', borderLeft: '3px solid #007bff' }}>
                       <span style={{ fontSize: '11px', color: '#888' }}>Question ID: {qId}</span><br />
                       <strong>Value: </strong>
-                      {typeof ans === 'string' && ans.startsWith('http') ? (
+                      {Array.isArray(ans) ? (
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '5px' }}>
+                          {ans.map((url, idx) => (
+                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" style={{ background: '#e9ecef', padding: '4px 8px', borderRadius: '4px', fontSize: '13px', textDecoration: 'none', color: '#0056b3' }}>📄 File {idx + 1}</a>
+                          ))}
+                        </div>
+                      ) : typeof ans === 'string' && ans.startsWith('http') ? (
                         <a href={ans} target="_blank" rel="noopener noreferrer">📄 View Uploaded File</a>
                       ) : (
                         ans
