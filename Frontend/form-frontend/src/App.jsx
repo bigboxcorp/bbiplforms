@@ -513,62 +513,104 @@ function FormViewer() {
 
 function ResponseDashboard() {
   const { formId } = useParams();
+  const [form, setForm] = useState(null);
   const [responses, setResponses] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchResponses = async () => {
+    const fetchData = async () => {
       try {
-        const res = await axios.get(`${API_URL}/responses/${formId}`);
-        setResponses(res.data);
+        const [formRes, respRes] = await Promise.all([
+          axios.get(`${API_URL}/forms/${formId}`),
+          axios.get(`${API_URL}/responses/${formId}`)
+        ]);
+        setForm(formRes.data);
+        setResponses(respRes.data);
       } catch (error) {
-        alert("Error fetching dashboard");
+        alert("Error fetching dashboard data");
       } finally {
         setLoading(false);
       }
     };
-    fetchResponses();
+    fetchData();
   }, [formId]);
 
+  const renderAnswer = (ans) => {
+    if (!ans) return '-';
+    
+    if (Array.isArray(ans)) {
+      return (
+        <span style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+          {ans.map((item, idx) => (
+            <span key={idx}>
+              {typeof item === 'string' && item.startsWith('http') ? (
+                <a href={item} target="_blank" rel="noopener noreferrer" style={{ color: '#007bff', textDecoration: 'none' }}>File {idx + 1}</a>
+              ) : (
+                item
+              )}
+              {idx < ans.length - 1 ? ', ' : ''}
+            </span>
+          ))}
+        </span>
+      );
+    }
+    
+    if (typeof ans === 'string' && ans.startsWith('http')) {
+      return <a href={ans} target="_blank" rel="noopener noreferrer" style={{ color: '#007bff', textDecoration: 'none' }}>View File</a>;
+    }
+    
+    if (typeof ans === 'string' && (ans.startsWith('{') || ans.startsWith('['))) {
+      try {
+        const parsed = JSON.parse(ans);
+        if (Array.isArray(parsed)) return parsed.join(', ');
+        if (typeof parsed === 'object') {
+          return Object.entries(parsed).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' | ');
+        }
+      } catch (e) {}
+    }
+    
+    return ans.toString();
+  };
+
   if (loading) return <div style={{ padding: '30px', textAlign: 'center' }}>Loading Panel...</div>;
+  if (!form) return <div style={{ padding: '30px', textAlign: 'center' }}>Form details not found!</div>;
 
   return (
-    <div style={{ padding: '20px', maxWidth: '1000px', margin: 'auto', fontFamily: 'Segoe UI, sans-serif' }}>
+    <div style={{ padding: '20px', maxWidth: '100%', margin: 'auto', fontFamily: 'Segoe UI, sans-serif' }}>
       <Link to="/" style={{ display: 'inline-block', marginBottom: '20px', color: '#007bff', textDecoration: 'none', fontWeight: 'bold' }}>← Back to Dashboard</Link>
-      <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-        <h2>Dynamic Responses Table ({responses.length})</h2>
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '20px' }}>
+      
+      <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', overflowX: 'auto' }}>
+        <h2>{form.title} - Responses ({responses.length})</h2>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '20px', minWidth: '800px' }}>
           <thead>
             <tr style={{ background: '#f4f4f4', borderBottom: '2px solid #ddd' }}>
-              <th style={{ padding: '10px', textAlign: 'left' }}>Time</th>
-              <th style={{ padding: '10px', textAlign: 'left' }}>Submissions Data</th>
+              <th style={{ padding: '12px', textAlign: 'left', borderRight: '1px solid #ddd', whiteSpace: 'nowrap' }}>Submission Time</th>
+              {form.fields.map((field) => (
+                <th key={field.id} style={{ padding: '12px', textAlign: 'left', borderRight: '1px solid #ddd' }}>
+                  {field.label || 'Untitled Question'}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {responses.map((resp) => (
-              <tr key={resp.responseId} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '10px', verticalAlign: 'top', minWidth: '150px' }}>{new Date(resp.submittedAt).toLocaleString()}</td>
-                <td style={{ padding: '10px' }}>
-                  {Object.entries(resp.answers).map(([qId, ans]) => (
-                    <div key={qId} style={{ marginBottom: '8px', background: '#fdfdfd', padding: '6px', borderLeft: '3px solid #007bff' }}>
-                      <span style={{ fontSize: '11px', color: '#888' }}>Question ID: {qId}</span><br />
-                      <strong>Value: </strong>
-                      {Array.isArray(ans) ? (
-                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '5px' }}>
-                          {ans.map((url, idx) => (
-                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" style={{ background: '#e9ecef', padding: '4px 8px', borderRadius: '4px', fontSize: '13px', textDecoration: 'none', color: '#0056b3' }}>📄 File {idx + 1}</a>
-                          ))}
-                        </div>
-                      ) : typeof ans === 'string' && ans.startsWith('http') ? (
-                        <a href={ans} target="_blank" rel="noopener noreferrer">📄 View Uploaded File</a>
-                      ) : (
-                        ans
-                      )}
-                    </div>
-                  ))}
-                </td>
+            {responses.length === 0 ? (
+              <tr>
+                <td colSpan={form.fields.length + 1} style={{ padding: '15px', textAlign: 'center' }}>No responses yet.</td>
               </tr>
-            ))}
+            ) : (
+              responses.map((resp) => (
+                <tr key={resp.responseId} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '12px', borderRight: '1px solid #ddd', whiteSpace: 'nowrap' }}>
+                    {new Date(resp.submittedAt).toLocaleString()}
+                  </td>
+                  {form.fields.map((field) => (
+                    <td key={field.id} style={{ padding: '12px', borderRight: '1px solid #ddd' }}>
+                      {renderAnswer(resp.answers[field.id])}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
