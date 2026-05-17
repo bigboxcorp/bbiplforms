@@ -264,12 +264,12 @@ function FormBuilder() {
               <div style={{ marginTop: '10px', background: '#e9ecef', padding: '15px', borderRadius: '5px' }}>
                 <label style={{ marginRight: '15px' }}><strong>Max Files:</strong> 
                   <select value={field.maxFileCount} onChange={(e) => updateField(field.id, 'maxFileCount', parseInt(e.target.value))} style={{ marginLeft: '10px', padding: '5px' }}>
-                    {[1, 5, 10].map(n => <option key={n} value={n}>{n}</option>)}
+                    {[1, 2, 3, 4, 5, 10].map(n => <option key={n} value={n}>{n}</option>)}
                   </select>
                 </label>
                 <label><strong>Max Size (MB):</strong> 
                   <select value={field.maxFileSize} onChange={(e) => updateField(field.id, 'maxFileSize', parseInt(e.target.value))} style={{ marginLeft: '10px', padding: '5px' }}>
-                    <option value="1">1 MB</option><option value="10">10 MB</option><option value="100">100 MB</option><option value="1024">1 GB</option><option value="10240">10 GB</option>
+                    <option value="1">1 MB</option><option value="5">5 MB</option><option value="10">10 MB</option><option value="50">50 MB</option><option value="100">100 MB</option>
                   </select>
                 </label>
               </div>
@@ -354,6 +354,7 @@ function FormViewer() {
   const [responses, setResponses] = useState({});
   const [files, setFiles] = useState({});
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const fetchForm = async () => {
@@ -449,43 +450,38 @@ function FormViewer() {
 
   const submitForm = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
 
     for (let field of formData.fields) {
       if (field.required) {
         if (!responses[field.id] && (!files[field.id] || files[field.id].length === 0)) {
           alert(`Please answer the required question: ${field.label}`);
+          setIsSubmitting(false);
           return;
         }
       }
       if (['text', 'paragraph'].includes(field.type)) {
         const err = executeValidation(field, responses[field.id]);
-        if (err) { alert(`Error in "${field.label}": ${err}`); return; }
-      }
-      if (field.type === 'grid-checkbox') {
-        const gridData = responses[field.id] ? JSON.parse(responses[field.id]) : {};
-        const colCounts = {};
-        for (let row in gridData) {
-          gridData[row].forEach(col => { colCounts[col] = (colCounts[col] || 0) + 1; });
-        }
-        if (Object.values(colCounts).some(c => c > 1)) {
-          alert(`Limit 1 response per column in Grid: ${field.label}`);
-          return;
-        }
+        if (err) { alert(`Error in "${field.label}": ${err}`); setIsSubmitting(false); return; }
       }
     }
 
     const data = new FormData();
     Object.keys(responses).forEach((key) => data.append(key, responses[key]));
+    
     Object.keys(files).forEach((key) => {
       files[key].forEach((file) => {
-        data.append(`${key}[]`, file);
+        data.append(key, file); 
       });
     });
 
     try {
       await axios.post(`${API_URL}/responses/${formId}`, data, { headers: { 'Content-Type': 'multipart/form-data' } });
       setSubmitted(true);
-    } catch (error) { alert("Submission failed"); }
+    } catch (error) { 
+      alert("Submission failed"); 
+      setIsSubmitting(false);
+    }
   };
 
   if (!formData) return <div style={{ padding: '30px', textAlign: 'center', fontSize: '18px' }}>Loading Form...</div>;
@@ -574,7 +570,9 @@ function FormViewer() {
             )}
           </div>
         ))}
-        <button type="submit" style={{ background: '#673ab7', color: 'white', padding: '12px 24px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>Submit</button>
+        <button type="submit" disabled={isSubmitting} style={{ background: isSubmitting ? '#ccc' : '#673ab7', color: 'white', padding: '12px 24px', border: 'none', borderRadius: '4px', cursor: isSubmitting ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
+          {isSubmitting ? 'Submitting...' : 'Submit'}
+        </button>
       </form>
     </div>
   );
@@ -587,18 +585,37 @@ function ResponseDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [formRes, respRes] = await Promise.all([
-          axios.get(`${API_URL}/forms/${formId}`),
-          axios.get(`${API_URL}/responses/${formId}`)
-        ]);
-        setForm(formRes.data);
-        setResponses(respRes.data);
-      } catch (error) { alert("Error fetching dashboard data"); } finally { setLoading(false); }
-    };
     fetchData();
   }, [formId]);
+
+  const fetchData = async () => {
+    try {
+      const [formRes, respRes] = await Promise.all([
+        axios.get(`${API_URL}/forms/${formId}`),
+        axios.get(`${API_URL}/responses/${formId}`)
+      ]);
+      setForm(formRes.data);
+      setResponses(respRes.data);
+    } catch (error) { alert("Error fetching dashboard data"); } finally { setLoading(false); }
+  };
+
+  const deleteSingleResponse = async (responseId) => {
+    if (window.confirm('Are you sure you want to delete this specific response?')) {
+      try {
+        await axios.delete(`${API_URL}/responses/${formId}/${responseId}`);
+        setResponses(responses.filter(r => r.responseId !== responseId));
+      } catch (error) { alert('Failed to delete response.'); }
+    }
+  };
+
+  const deleteAllResponses = async () => {
+    if (window.confirm('WARNING: Are you sure you want to delete ALL responses for this form? This cannot be undone.')) {
+      try {
+        await axios.delete(`${API_URL}/responses/bulk/${formId}`);
+        setResponses([]);
+      } catch (error) { alert('Failed to delete responses.'); }
+    }
+  };
 
   const renderHorizontalAnswer = (ans) => {
     if (!ans) return '';
@@ -639,7 +656,14 @@ function ResponseDashboard() {
       <Link to="/" style={{ display: 'inline-block', marginBottom: '20px', color: '#007bff', textDecoration: 'none', fontWeight: 'bold' }}>← Back to Admin Panel</Link>
       
       <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-        <h2>{form.title} - Responses ({responses.length})</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2>{form.title} - Responses ({responses.length})</h2>
+          {responses.length > 0 && (
+            <button onClick={deleteAllResponses} style={{ background: '#dc3545', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+              🗑 Delete All Responses
+            </button>
+          )}
+        </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '20px', minWidth: '900px', fontSize: '14px' }}>
             <thead>
@@ -650,11 +674,12 @@ function ResponseDashboard() {
                     {field.label || 'Untitled Question'}
                   </th>
                 ))}
+                <th style={{ padding: '12px', textAlign: 'center', minWidth: '80px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {responses.length === 0 ? (
-                <tr><td colSpan={form.fields.length + 1} style={{ padding: '20px', textAlign: 'center' }}>No responses yet.</td></tr>
+                <tr><td colSpan={form.fields.length + 2} style={{ padding: '20px', textAlign: 'center' }}>No responses yet.</td></tr>
               ) : (
                 responses.map((resp) => (
                   <tr key={resp.responseId} style={{ borderBottom: '1px solid #e8eaed' }}>
@@ -666,6 +691,9 @@ function ResponseDashboard() {
                         {renderHorizontalAnswer(resp.answers[field.id]) || <span style={{ color: '#ccc' }}>-</span>}
                       </td>
                     ))}
+                    <td style={{ padding: '12px', textAlign: 'center' }}>
+                      <button onClick={() => deleteSingleResponse(resp.responseId)} style={{ background: '#ff4d4f', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Delete</button>
+                    </td>
                   </tr>
                 ))
               )}

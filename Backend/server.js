@@ -119,7 +119,7 @@ app.post('/api/responses/:formId', upload.any(), async (req, res) => {
         await s3Client.send(s3Command);
         const url = `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
         
-        const cleanFieldName = file.fieldname.replace(/\[\d+\]$/, ''); 
+        const cleanFieldName = file.fieldname.replace(/\[\]$/, ''); 
         if (!fileUrls[cleanFieldName]) {
           fileUrls[cleanFieldName] = [];
         }
@@ -181,7 +181,47 @@ app.get('/api/responses/:formId', async (req, res) => {
         }
       }
     }
+    // Sort responses by submittedAt descending
+    items.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     res.status(200).json(items);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Single Response Delete
+app.delete('/api/responses/:formId/:responseId', async (req, res) => {
+  try {
+    const command = new DeleteCommand({
+      TableName: process.env.DYNAMODB_RESPONSES_TABLE,
+      Key: { responseId: req.params.responseId },
+    });
+    await docClient.send(command);
+    res.status(200).json({ message: 'Response deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk Response Delete (Delete All for a form)
+app.delete('/api/responses/bulk/:formId', async (req, res) => {
+  try {
+    const scanCmd = new ScanCommand({
+      TableName: process.env.DYNAMODB_RESPONSES_TABLE,
+      FilterExpression: "formId = :formId",
+      ExpressionAttributeValues: { ":formId": req.params.formId },
+    });
+    const response = await docClient.send(scanCmd);
+    const items = response.Items || [];
+
+    for (const item of items) {
+      const delCmd = new DeleteCommand({
+        TableName: process.env.DYNAMODB_RESPONSES_TABLE,
+        Key: { responseId: item.responseId }
+      });
+      await docClient.send(delCmd);
+    }
+    res.status(200).json({ message: 'All responses deleted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
