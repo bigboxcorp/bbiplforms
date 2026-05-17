@@ -471,7 +471,7 @@ function FormViewer() {
     
     Object.keys(files).forEach((key) => {
       files[key].forEach((file) => {
-        data.append(key, file); 
+        data.append(`${key}[]`, file); 
       });
     });
 
@@ -583,10 +583,16 @@ function ResponseDashboard() {
   const [form, setForm] = useState(null);
   const [responses, setResponses] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  const [mailModalActive, setMailModalActive] = useState(false);
+  const [activeResp, setActiveResp] = useState(null);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailTemplate, setEmailTemplate] = useState('');
+  const [previewTab, setPreviewTab] = useState(false);
+  const [sendingMail, setSendingMail] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-  }, [formId]);
+  useEffect(() => { fetchData(); }, [formId]);
 
   const fetchData = async () => {
     try {
@@ -614,6 +620,81 @@ function ResponseDashboard() {
         await axios.delete(`${API_URL}/responses/bulk/${formId}`);
         setResponses([]);
       } catch (error) { alert('Failed to delete responses.'); }
+    }
+  };
+
+  const exportToExcelCSV = () => {
+    if (!form || responses.length === 0) return;
+    const headers = ['Submission Time', ...form.fields.map(f => f.label || 'Untitled Question')];
+    const rows = responses.map(resp => {
+      return [
+        new Date(resp.submittedAt).toLocaleString(),
+        ...form.fields.map(field => {
+          const ans = resp.answers[field.id];
+          if (!ans) return '';
+          if (Array.isArray(ans)) return ans.join(' | ');
+          return ans.toString();
+        })
+      ];
+    });
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+      + [headers.join(','), ...rows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${form.title.replace(/\s+/g, '_')}_Responses.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const openMailModal = (resp) => {
+    setActiveResp(resp);
+    setEmailTo('');
+    setEmailSubject(`Response Submission Update: ${form.title}`);
+    let defaultBody = `<h3>Form Response Data</h3><p>Thank you for submitting. Here is the copy:</p><ul>`;
+    form.fields.forEach(f => {
+      defaultBody += `<li><strong>${f.label}:</strong> {{${f.label}}}</li>`;
+    });
+    defaultBody += `</ul>`;
+    setEmailTemplate(defaultBody);
+    setPreviewTab(false);
+    setMailModalActive(true);
+  };
+
+  const parseMailTemplate = (templateStr, resp) => {
+    if (!resp) return '';
+    let parsed = templateStr;
+    parsed = parsed.split('{{Timestamp}}').join(new Date(resp.submittedAt).toLocaleString());
+    form.fields.forEach(f => {
+      const ans = resp.answers[f.id];
+      let txt = '-';
+      if (ans) {
+        if (Array.isArray(ans)) txt = ans.join(', ');
+        else txt = ans.toString();
+      }
+      parsed = parsed.split(`{{${f.label}}}`).join(txt);
+      parsed = parsed.split(`{{${f.id}}}`).join(txt);
+    });
+    return parsed;
+  };
+
+  const sendCustomMail = async () => {
+    if (!emailTo) { alert('Recipient email address is required.'); return; }
+    setSendingMail(true);
+    const dynamicHTML = parseMailTemplate(emailTemplate, activeResp);
+    try {
+      await axios.post(`${API_URL}/responses/send-email`, {
+        to: emailTo,
+        subject: emailSubject,
+        html: dynamicHTML
+      });
+      alert('Mail dispatched successfully!');
+      setMailModalActive(false);
+    } catch (e) {
+      alert('Failed to send mail. Check your backend SMTP config.');
+    } finally {
+      setSendingMail(false);
     }
   };
 
@@ -656,13 +737,20 @@ function ResponseDashboard() {
       <Link to="/" style={{ display: 'inline-block', marginBottom: '20px', color: '#007bff', textDecoration: 'none', fontWeight: 'bold' }}>← Back to Admin Panel</Link>
       
       <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
           <h2>{form.title} - Responses ({responses.length})</h2>
-          {responses.length > 0 && (
-            <button onClick={deleteAllResponses} style={{ background: '#dc3545', color: 'white', padding: '8px 16px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-              🗑 Delete All Responses
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {responses.length > 0 && (
+              <>
+                <button onClick={exportToExcelCSV} style={{ background: '#28a745', color: 'white', padding: '10px 18px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                  📥 Export To Excel
+                </button>
+                <button onClick={deleteAllResponses} style={{ background: '#dc3545', color: 'white', padding: '10px 18px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                  🗑 Delete All
+                </button>
+              </>
+            )}
+          </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '20px', minWidth: '900px', fontSize: '14px' }}>
@@ -674,7 +762,7 @@ function ResponseDashboard() {
                     {field.label || 'Untitled Question'}
                   </th>
                 ))}
-                <th style={{ padding: '12px', textAlign: 'center', minWidth: '80px' }}>Actions</th>
+                <th style={{ padding: '12px', textAlign: 'center', minWidth: '160px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -691,7 +779,8 @@ function ResponseDashboard() {
                         {renderHorizontalAnswer(resp.answers[field.id]) || <span style={{ color: '#ccc' }}>-</span>}
                       </td>
                     ))}
-                    <td style={{ padding: '12px', textAlign: 'center' }}>
+                    <td style={{ padding: '12px', textAlign: 'center', display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                      <button onClick={() => openMailModal(resp)} style={{ background: '#17a2b8', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>📧 Send Mail</button>
                       <button onClick={() => deleteSingleResponse(resp.responseId)} style={{ background: '#ff4d4f', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Delete</button>
                     </td>
                   </tr>
@@ -701,6 +790,55 @@ function ResponseDashboard() {
           </table>
         </div>
       </div>
+
+      {mailModalActive && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
+          <div style={{ background: 'white', padding: '30px', borderRadius: '8px', width: '90%', maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <h3>Scriptable Dynamic Email Console</h3>
+              <button onClick={() => setMailModalActive(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer' }}>✕</button>
+            </div>
+            
+            <div style={{ background: '#f8f9fa', padding: '10px', borderRadius: '4px', marginBottom: '15px', fontSize: '12px' }}>
+              <strong>Available Variables Injection:</strong> <span style={{ color: '#673ab7' }}>{"{{Timestamp}}"}</span>
+              {form.fields.map(f => <span key={f.id} style={{ color: '#007bff', marginLeft: '8px' }}>{"{{"}{f.label}{"}}"}</span>)}
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Recipient Email (To):</label>
+              <input type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="user@example.com" style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }} />
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>Email Subject:</label>
+              <input type="text" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }} />
+            </div>
+
+            <div style={{ display: 'flex', borderBottom: '1px solid #ccc', marginBottom: '15px' }}>
+              <button onClick={() => setPreviewTab(false)} style={{ padding: '8px 16px', background: !previewTab ? '#fff' : '#eee', border: '1px solid #ccc', borderBottom: !previewTab ? 'none' : '1px solid #ccc', cursor: 'pointer' }}>Script / HTML Editor</button>
+              <button onClick={() => setPreviewTab(true)} style={{ padding: '8px 16px', background: previewTab ? '#fff' : '#eee', border: '1px solid #ccc', borderBottom: previewTab ? 'none' : '1px solid #ccc', cursor: 'pointer' }}>Live Script Preview</button>
+            </div>
+
+            {!previewTab ? (
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>HTML Content / Script Body:</label>
+                <textarea value={emailTemplate} onChange={(e) => setEmailTemplate(e.target.value)} style={{ width: '100%', height: '180px', padding: '10px', boxSizing: 'border-box', fontFamily: 'monospace' }} />
+              </div>
+            ) : (
+              <div style={{ border: '1px solid #ccc', padding: '15px', minHeight: '180px', marginBottom: '15px', borderRadius: '4px', background: '#fafafa' }}>
+                <div dangerouslySetInnerHTML={{ __html: parseMailTemplate(emailTemplate, activeResp) }} />
+              </div>
+            )}
+
+            <div style={{ textAlign: 'right' }}>
+              <button onClick={() => setMailModalActive(false)} style={{ background: '#6c757d', color: 'white', padding: '10px 20px', border: 'none', borderRadius: '4px', cursor: 'pointer', marginRight: '10px' }}>Cancel</button>
+              <button onClick={sendCustomMail} disabled={sendingMail} style={{ background: '#28a745', color: 'white', padding: '10px 20px', border: 'none', borderRadius: '4px', cursor: sendingMail ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>
+                {sendingMail ? 'Dispatching Mail...' : 'Execute & Send Mail'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

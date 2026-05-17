@@ -7,6 +7,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
+import nodemailer from 'nodemailer';
 
 dotenv.config();
 
@@ -32,6 +33,16 @@ const ddbClient = new DynamoDBClient({
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
 app.get('/api/forms', async (req, res) => {
   try {
@@ -109,7 +120,9 @@ app.post('/api/responses/:formId', upload.any(), async (req, res) => {
 
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
-        const fileKey = `${formId}/${responseId}/${file.originalname}`;
+        const uniqueName = `${Date.now()}-${file.originalname.replace(/\s+/g, '_')}`;
+        const fileKey = `${formId}/${responseId}/${uniqueName}`;
+        
         const s3Command = new PutObjectCommand({
           Bucket: process.env.S3_BUCKET_NAME,
           Key: fileKey,
@@ -181,7 +194,6 @@ app.get('/api/responses/:formId', async (req, res) => {
         }
       }
     }
-    // Sort responses by submittedAt descending
     items.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     res.status(200).json(items);
   } catch (error) {
@@ -189,7 +201,6 @@ app.get('/api/responses/:formId', async (req, res) => {
   }
 });
 
-// Single Response Delete
 app.delete('/api/responses/:formId/:responseId', async (req, res) => {
   try {
     const command = new DeleteCommand({
@@ -203,7 +214,6 @@ app.delete('/api/responses/:formId/:responseId', async (req, res) => {
   }
 });
 
-// Bulk Response Delete (Delete All for a form)
 app.delete('/api/responses/bulk/:formId', async (req, res) => {
   try {
     const scanCmd = new ScanCommand({
@@ -222,6 +232,22 @@ app.delete('/api/responses/bulk/:formId', async (req, res) => {
       await docClient.send(delCmd);
     }
     res.status(200).json({ message: 'All responses deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/responses/send-email', async (req, res) => {
+  try {
+    const { to, subject, html } = req.body;
+    const mailOptions = {
+      from: process.env.SMTP_USER,
+      to,
+      subject,
+      html,
+    };
+    await transporter.sendMail(mailOptions);
+    res.status(200).json({ message: 'Email sent successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
