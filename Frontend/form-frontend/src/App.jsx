@@ -6,8 +6,9 @@ const API_URL = 'https://api.bbipl.org/api';
 
 const getShortUrl = (longUrl) => {
   if (typeof longUrl === 'string' && longUrl.includes('.amazonaws.com/')) {
-    const key = longUrl.split('.amazonaws.com/')[1];
-    return `${API_URL}/file?key=${encodeURIComponent(key)}`;
+    const cleanUrl = longUrl.split('?')[0];
+    const key = cleanUrl.split('.amazonaws.com/')[1];
+    return `${API_URL}/file?key=${key}`;
   }
   return longUrl;
 };
@@ -431,7 +432,7 @@ function FormViewer() {
       if (field.valCondition === '<' && num >= Number(field.valNumber1)) return err;
       if (field.valCondition === '<=' && num > Number(field.valNumber1)) return err;
       if (field.valCondition === '==' && num !== Number(field.valNumber1)) return err;
-      if (field.valCondition === '!=' && num === Number(field.valNumber1)) return err;
+      if (field.valCondition === ' != ' && num === Number(field.valNumber1)) return err;
       if (field.valCondition === 'between' && (num < Number(field.valNumber1) || num > Number(field.valNumber2))) return err;
     }
     if (field.valType === 'text') {
