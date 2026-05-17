@@ -35,9 +35,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 app.get('/api/forms', async (req, res) => {
   try {
-    const command = new ScanCommand({
-      TableName: process.env.DYNAMODB_FORMS_TABLE,
-    });
+    const command = new ScanCommand({ TableName: process.env.DYNAMODB_FORMS_TABLE });
     const response = await docClient.send(command);
     res.status(200).json(response.Items || []);
   } catch (error) {
@@ -49,16 +47,10 @@ app.post('/api/forms', async (req, res) => {
   try {
     const formId = uuidv4();
     const { title, fields } = req.body;
-
     const command = new PutCommand({
       TableName: process.env.DYNAMODB_FORMS_TABLE,
-      Item: {
-        formId,
-        title,
-        fields,
-      },
+      Item: { formId, title, fields },
     });
-
     await docClient.send(command);
     res.status(201).json({ formId });
   } catch (error) {
@@ -70,15 +62,10 @@ app.get('/api/forms/:formId', async (req, res) => {
   try {
     const command = new GetCommand({
       TableName: process.env.DYNAMODB_FORMS_TABLE,
-      Key: {
-        formId: req.params.formId,
-      },
+      Key: { formId: req.params.formId },
     });
-
     const response = await docClient.send(command);
-    if (!response.Item) {
-      return res.status(404).json({ error: 'Form not found' });
-    }
+    if (!response.Item) return res.status(404).json({ error: 'Form not found' });
     res.status(200).json(response.Item);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -89,16 +76,10 @@ app.put('/api/forms/:formId', async (req, res) => {
   try {
     const { formId } = req.params;
     const { title, fields } = req.body;
-
     const command = new PutCommand({
       TableName: process.env.DYNAMODB_FORMS_TABLE,
-      Item: {
-        formId,
-        title,
-        fields,
-      },
+      Item: { formId, title, fields },
     });
-
     await docClient.send(command);
     res.status(200).json({ formId, message: 'Form updated successfully' });
   } catch (error) {
@@ -110,9 +91,7 @@ app.delete('/api/forms/:formId', async (req, res) => {
   try {
     const command = new DeleteCommand({
       TableName: process.env.DYNAMODB_FORMS_TABLE,
-      Key: {
-        formId: req.params.formId,
-      },
+      Key: { formId: req.params.formId },
     });
     await docClient.send(command);
     res.status(200).json({ message: 'Form deleted successfully' });
@@ -140,10 +119,11 @@ app.post('/api/responses/:formId', upload.any(), async (req, res) => {
         await s3Client.send(s3Command);
         const url = `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
         
-        if (!fileUrls[file.fieldname]) {
-          fileUrls[file.fieldname] = [];
+        const cleanFieldName = file.fieldname.replace(/\[\d+\]$/, ''); 
+        if (!fileUrls[cleanFieldName]) {
+          fileUrls[cleanFieldName] = [];
         }
-        fileUrls[file.fieldname].push(url);
+        fileUrls[cleanFieldName].push(url);
       }
     }
 
@@ -171,11 +151,8 @@ app.get('/api/responses/:formId', async (req, res) => {
     const command = new ScanCommand({
       TableName: process.env.DYNAMODB_RESPONSES_TABLE,
       FilterExpression: "formId = :formId",
-      ExpressionAttributeValues: {
-        ":formId": req.params.formId,
-      },
+      ExpressionAttributeValues: { ":formId": req.params.formId },
     });
-
     const response = await docClient.send(command);
     const items = response.Items || [];
 
@@ -204,7 +181,6 @@ app.get('/api/responses/:formId', async (req, res) => {
         }
       }
     }
-
     res.status(200).json(items);
   } catch (error) {
     res.status(500).json({ error: error.message });
